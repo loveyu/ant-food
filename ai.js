@@ -32,12 +32,13 @@ var AI = {
    */
   get_next: function (ant) {
     var bk = { x: ant.x, y: ant.y };
+    // 水计数器到期且无进行中的路径时，必定找水
     if (
       ant.water == 0 &&
       ant.stack_path.length == 0 &&
       ant.fixed_path.length == 0
     ) {
-      if (AntFood.water.length > 0 && Math.random() > 0.8) {
+      if (AntFood.water.length > 0) {
         ant.water_after = ant.type;
         ant.type = 1;
         ant.water = -1;
@@ -112,7 +113,11 @@ var AI = {
         }
         if (AntFood.food_map.hasOwnProperty(x2) && AntFood.food_map[x2] > 0.1) {
           if (!AI.is_out_wall(ant, xob) && !AI.is_in_water(xob)) {
-            candidates.push({ x: i, y: j, w: AntFood.food_map[x2] });
+            candidates.push({
+              x: i,
+              y: j,
+              w: AntFood.food_map[x2] * AntFood.food_map[x2],
+            });
           }
         }
       }
@@ -174,7 +179,11 @@ var AI = {
             !AI.is_in_food(xob) &&
             !AI.is_in_home(xob)
           ) {
-            candidates.push({ x: i, y: j, w: AntFood.water_map[x2] });
+            candidates.push({
+              x: i,
+              y: j,
+              w: AntFood.water_map[x2] * AntFood.water_map[x2],
+            });
           }
         }
       }
