@@ -308,17 +308,19 @@ var AI = {
   },
 
   /**
-   * 回巢（概率化信息素选择）
+   * 回巢（贪心选择 + 排除已走路径，确保可靠导航）
    */
   get_back_rule: function (ant) {
     ant = AI.save_home_info(ant);
     var nx = 0,
       ny = 0,
+      mx = 0,
       i,
       j,
       x2,
-      flag = false;
-    var candidates = [];
+      flag = false,
+      jx,
+      jy;
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
@@ -332,16 +334,21 @@ var AI = {
           !AI.is_in_food(xob) &&
           !AI.is_in_water(xob)
         ) {
+          mx = -1;
           flag = true;
           break;
         }
-        if (AntFood.home_map.hasOwnProperty(x2) && AntFood.home_map[x2] > 0.1) {
+        if (AntFood.home_map.hasOwnProperty(x2)) {
           if (
+            AntFood.home_map[x2] > mx &&
+            !AI.in_queue(ant.queues, xob) &&
             !AI.is_out_wall({ x: ant.x, y: ant.y }, xob) &&
             !AI.is_in_food(xob) &&
             !AI.is_in_water(xob)
           ) {
-            candidates.push({ x: i, y: j, w: AntFood.home_map[x2] });
+            mx = AntFood.home_map[x2];
+            jx = i;
+            jy = j;
           }
         }
       }
@@ -349,18 +356,11 @@ var AI = {
         break;
       }
     }
-    if (flag) {
+    if (mx == -1) {
       return AI.set_fixed_food_home(ant, { x: nx, y: ny });
-    }
-    if (candidates.length > 0) {
-      var target = AI.weighted_random(candidates);
+    } else if (mx > 0) {
       ant.type = 5;
-      ant.stack_path = AI.draw_line(
-        ant.x + target.x,
-        ant.y + target.y,
-        ant.x,
-        ant.y,
-      );
+      ant.stack_path = AI.draw_line(ant.x + jx, ant.y + jy, ant.x, ant.y);
       return AI.find_food_back(ant);
     }
     return AI.get_ant_search_rul(ant);
