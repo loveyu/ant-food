@@ -1,0 +1,52 @@
+html, body {
+	margin: 0;
+	height: 0;
+	background: #f4f4f4;
+}
+
+#content {
+	width: 800px;
+	margin: 10px auto;
+}
+
+#canvas {
+	padding: 0;
+	display: block;
+	width: 800px;
+	height: 600px;
+	margin: 0 auto;
+}
+
+#content .select button {
+	line-height: 1.5;
+	border: 1px solid #ddd;
+	background: #e3e3e3;
+	cursor: pointer;
+}
+
+#content .select button.now {
+	background: #cc2d20;
+	color: #fff;
+	line-height: 1.5;
+}
+#color_list{
+	margin: 5px;
+	line-height: 18px;
+}
+#color_list span{
+	margin: 0 4px 0 0;
+}
+
+.copyright{
+	text-align: center;
+	margin-bottom: 25px;
+}
+.copyright a{
+	color: #888;
+}
+p{
+	margin: 5px 0;
+	padding: 0;
+	line-height: 1.2;
+	color: #444;
+}

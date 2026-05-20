@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+	<meta charset="UTF-8">
+	<title>蚂蚁找食物</title>
+	<script src="ai.js"></script>
+	<script src="ant.js"></script>
+	<script src="event.js"></script>
+	<script src="main.js"></script>
+	<link type="text/css" rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div id="content">
+	<h2>Canvas 蚂蚁找食物</h2>
+	<div class="select">
+		<p>当前选择：<span id="d_action">
+			<button type="button" id="d_wall">画墙</button>
+			<button type="button" id="d_food">画食物</button>
+			<button type="button" id="d_water">画水</button>
+			</span>
+			<span id="Start">
+				<button type="button" id="s_start">开始</button>
+				<button type="button" id="s_pause">暂停</button>
+				<button type="button" id="s_reset">重置</button>
+			</span>
+		</p>
+		<p style="color: red"><small>初次点击任意位置设置巢穴位子和大小</small></p>
+	</div>
+	<canvas id="canvas" width="800" height="600"></canvas>
+	<div id="color_list"></div>
+</div>
+<p class="copyright">&copy; 2014 by <a href="http://www.loveyu.org/">loveyu.org</a></p>
+<script>start_ant_food();</script>
+<script type="text/javascript">
+	var _paq = _paq || [];
+	_paq.push(["setCookieDomain", "*.loveyu.info"]);
+	_paq.push(['trackPageView']);
+	_paq.push(['enableLinkTracking']);
+	(function() {
+		var u="http://tj.loveyu.info/";
+		_paq.push(['setTrackerUrl', u+'piwik.php']);
+		_paq.push(['setSiteId', 5]);
+		var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
+		g.type='text/javascript'; g.async=true; g.defer=true; g.src=u+'piwik.js'; s.parentNode.insertBefore(g,s);
+	})();
+</script>
+</body>
+</html>
