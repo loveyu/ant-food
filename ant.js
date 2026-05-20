@@ -264,7 +264,7 @@ var Ant = {
         fixed_path: [], //固定路径
         stack_path: [], //堆栈路径
         queues: [], //历史队列
-        water: AI.rand(AntFood.water_max / 3, AntFood.water_max), //多少次后改为找水
+        water: AI.rand(AntFood.water_max * 3, AntFood.water_max * 5), //多少次后改为找水
         water_after: undefined, //找到水之后的状态
         water_save: false, //散布水信息素
         vector: AI.rand(1, 8), //方向

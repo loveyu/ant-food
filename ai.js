@@ -43,7 +43,7 @@ var AI = {
         ant.type = 1;
         ant.water = -1;
       } else {
-        ant.water = AntFood.water_max;
+        ant.water = AntFood.water_max * 5;
       }
     }
     if (ant.water > 0) {
@@ -193,7 +193,7 @@ var AI = {
     }
     if (flag && ant.water == -1) {
       ant.type = ant.water_after;
-      ant.water = AntFood.water_max;
+      ant.water = AntFood.water_max * 5;
       ant.water_save = true;
       return AI.get_next(ant);
     }
@@ -643,7 +643,7 @@ var AI = {
     if (ant.c_home > 1) {
       now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
       if (now < ant.c_home) {
-        AntFood.home_map[x] = now + ant.c_home * 0.005;
+        AntFood.home_map[x] = now + ant.c_home * 0.002;
       }
       ant.c_home *= 0.999;
     }
@@ -652,9 +652,9 @@ var AI = {
     if (ant.c_food > 1) {
       if (ant.type == 5 || ant.type == 2 || ant.type == 7) {
         now = AntFood.food_map.hasOwnProperty(x) ? AntFood.food_map[x] : 0;
-        AntFood.food_map[x] = now + ant.c_food * 0.05;
+        AntFood.food_map[x] = now + ant.c_food * 0.02;
       }
-      ant.c_food *= 0.995;
+      ant.c_food *= 0.99;
     }
 
     // 水信息素
