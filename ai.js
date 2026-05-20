@@ -1,17 +1,48 @@
 var AI = {
   /**
+   * 计算方向的反方向（8方向系统：1=N, 2=NE, ..., 8=NW）
+   */
+  opposite_dir: function (d) {
+    return ((d + 3) % 8) + 1;
+  },
+
+  /**
+   * 按权重概率随机选择一个候选点
+   * @param {{x:number, y:number, w:number}[]} candidates
+   */
+  weighted_random: function (candidates) {
+    if (!candidates || candidates.length == 0) return null;
+    if (candidates.length == 1) return candidates[0];
+    var total = 0;
+    for (var k = 0; k < candidates.length; k++) {
+      total += candidates[k].w;
+    }
+    if (total <= 0) return candidates[0];
+    var r = Math.random() * total;
+    var cumSum = 0;
+    for (var k = 0; k < candidates.length; k++) {
+      cumSum += candidates[k].w;
+      if (r <= cumSum) return candidates[k];
+    }
+    return candidates[candidates.length - 1];
+  },
+
+  /**
    * 计算蚂蚁的下一个点
    */
   get_next: function (ant) {
     var bk = { x: ant.x, y: ant.y };
-    if (ant.water == 0 && ant.stack_path.length == 0 && ant.fixed_path == 0) {
-      if (Math.random() > 0.5) {
+    if (
+      ant.water == 0 &&
+      ant.stack_path.length == 0 &&
+      ant.fixed_path.length == 0
+    ) {
+      if (AntFood.water.length > 0 && Math.random() > 0.8) {
         ant.water_after = ant.type;
         ant.type = 1;
         ant.water = -1;
       } else {
-        //针对一部分蚂蚁取消关于水的需求
-        ant.water = AntFood.water;
+        ant.water = AntFood.water_max;
       }
     }
     if (ant.water > 0) {
@@ -19,31 +50,24 @@ var AI = {
     }
     switch (ant.type) {
       case 0:
-        //觅食
         ant = AI.get_search_food(ant);
         break;
       case 1:
-        //找水
         ant = AI.search_water(ant);
         break;
       case 2:
-        //回巢
         ant = AI.get_back_rule(ant);
         break;
       case 4:
-        //固定觅食路径，找到食物
         ant = AI.get_next_fixed_food(ant);
         break;
       case 5:
-        //固定回巢路径
         ant = AI.find_food_back(ant);
         break;
       case 6:
-        //固定觅食路径，找到合适信息素
         ant = AI.get_right_food_road(ant);
         break;
       case 7:
-        //固定的回巢路径
         ant = AI.get_next_fixed_home(ant);
         break;
       case 8:
@@ -60,21 +84,17 @@ var AI = {
   },
 
   /**
-   * 开始觅食操作
-   * @param ant
-   * @returns {*}
+   * 开始觅食操作（概率化信息素选择）
    */
   get_search_food: function (ant) {
     ant = AI.save_home_info(ant);
     var nx = 0,
       ny = 0,
-      mx = 0,
       i,
       j,
       x2,
-      flag = false,
-      jx,
-      jy;
+      flag = false;
+    var candidates = [];
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
@@ -87,46 +107,38 @@ var AI = {
           !AI.is_out_wall(ant, xob) &&
           !AI.is_in_water(xob)
         ) {
-          mx = -1;
           flag = true;
           break;
         }
-        if (AntFood.food_map.hasOwnProperty(x2)) {
-          if (
-            AntFood.food_map[x2] > mx &&
-            !AI.in_queue(ant.queues, xob) &&
-            !AI.is_out_wall(ant, xob) &&
-            !AI.is_in_water(xob)
-          ) {
-            mx = AntFood.food_map[x2];
-            jx = i;
-            jy = j;
+        if (AntFood.food_map.hasOwnProperty(x2) && AntFood.food_map[x2] > 0.1) {
+          if (!AI.is_out_wall(ant, xob) && !AI.is_in_water(xob)) {
+            candidates.push({ x: i, y: j, w: AntFood.food_map[x2] });
           }
         }
       }
       if (flag) {
-        //找到食物
         break;
       }
     }
-    if (mx == 0) {
-      //搜索食物失败，规则运动
-      return AI.get_ant_search_rul(ant);
-    } else if (mx == -1) {
-      //找到食物
+    if (flag) {
       return AI.set_fixed_food_path(ant, { x: nx, y: ny });
-    } else {
-      //找到食物路径
+    }
+    if (candidates.length > 0) {
+      var target = AI.weighted_random(candidates);
       ant.type = 6;
-      ant.stack_path = AI.draw_line(ant.x + jx, ant.y + jy, ant.x, ant.y);
+      ant.stack_path = AI.draw_line(
+        ant.x + target.x,
+        ant.y + target.y,
+        ant.x,
+        ant.y,
+      );
       return AI.get_right_food_road(ant);
     }
+    return AI.get_ant_search_rul(ant);
   },
 
   /**
-   * 开始找水
-   * @param ant
-   * @returns {*}
+   * 开始找水（概率化信息素选择）
    */
   search_water: function (ant) {
     ant = AI.save_home_info(ant);
@@ -136,10 +148,8 @@ var AI = {
       j,
       x2,
       flag = false,
-      xob,
-      mx = 0,
-      jx,
-      jy;
+      xob;
+    var candidates = [];
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
@@ -155,22 +165,20 @@ var AI = {
           flag = true;
           break;
         }
-        if (AntFood.water_map.hasOwnProperty(x2)) {
+        if (
+          AntFood.water_map.hasOwnProperty(x2) &&
+          AntFood.water_map[x2] > 0.1
+        ) {
           if (
-            AntFood.water_map[x2] > mx &&
-            !AI.in_queue(ant.queues, xob) &&
             !AI.is_out_wall(ant, xob) &&
             !AI.is_in_food(xob) &&
             !AI.is_in_home(xob)
           ) {
-            mx = AntFood.water_map[x2];
-            jx = i;
-            jy = j;
+            candidates.push({ x: i, y: j, w: AntFood.water_map[x2] });
           }
         }
       }
       if (flag) {
-        //找到水
         break;
       }
     }
@@ -179,10 +187,16 @@ var AI = {
       ant.water = AntFood.water_max;
       ant.water_save = true;
       return AI.get_next(ant);
-    } else if (mx > 0) {
-      //找到水源路径
+    }
+    if (candidates.length > 0) {
+      var target = AI.weighted_random(candidates);
       ant.type = 8;
-      ant.stack_path = AI.draw_line(ant.x + jx, ant.y + jy, ant.x, ant.y);
+      ant.stack_path = AI.draw_line(
+        ant.x + target.x,
+        ant.y + target.y,
+        ant.x,
+        ant.y,
+      );
       return AI.find_water_next(ant);
     }
     return (ant = AI.get_ant_search_rul(ant));
@@ -190,8 +204,6 @@ var AI = {
 
   /**
    * 设置蚂蚁的固定觅食路径
-   * @param ant
-   * @param p
    */
   set_fixed_food_path: function (ant, p) {
     ant.type = 4;
@@ -200,20 +212,16 @@ var AI = {
   },
 
   /**
-   * 返回下一个固定点搜索
-   * @param ant
-   * @returns {*}
+   * 沿固定路径走向食物
    */
   get_next_fixed_food: function (ant) {
     if (ant.fixed_path.length > 0) {
-      //设置信息素
       ant = AI.save_home_info(ant);
       var pop = ant.fixed_path.pop();
       ant.x = pop.x;
       ant.y = pop.y;
       ant.stack_path.push(pop);
     } else {
-      //清除历史路径
       ant.queues = [];
       ant.c_food = AntFood.c_food;
       ant.water_save = false;
@@ -224,8 +232,6 @@ var AI = {
 
   /**
    * 设置蚂蚁的固定回巢路径
-   * @param ant
-   * @param p
    */
   set_fixed_food_home: function (ant, p) {
     ant.type = 7;
@@ -234,22 +240,19 @@ var AI = {
   },
 
   /**
-   * 返回下一个固定点搜索到巢穴
-   * @param ant
-   * @returns {*}
+   * 沿固定路径回巢
    */
   get_next_fixed_home: function (ant) {
     if (ant.fixed_path.length > 0) {
-      //设置信息素
       ant = AI.save_home_info(ant);
       var pop = ant.fixed_path.pop();
       ant.x = pop.x;
       ant.y = pop.y;
       ant.stack_path.push(pop);
     } else {
-      //清除历史路径
       ant.queues = [];
       ant.c_home = AntFood.c_home;
+      ant.c_food = 0;
       ant.water_save = false;
       return AI.get_search_food(ant);
     }
@@ -257,12 +260,11 @@ var AI = {
   },
 
   /**
-   * 找到食物后返回
+   * 找到食物后沿栈返回
    */
   find_food_back: function (ant) {
     if (ant.stack_path.length == 0) {
       ant.type = 2;
-      //此处在返回规则中设置信息素
       return AI.get_back_rule(ant);
     } else {
       ant.type = 5;
@@ -274,17 +276,14 @@ var AI = {
   },
 
   /**
-   * 找到水源路径
-   * @param ant
-   * @returns {*}
+   * 沿水源信息素路径移动
    */
   find_water_next: function (ant) {
     if (ant.stack_path.length == 0) {
       ant.type = 1;
-      //此处在返回规则中设置信息素
       return AI.search_water(ant);
     } else {
-      ant.type = 8; //继续堆栈寻找
+      ant.type = 8;
       var pop = ant.stack_path.pop();
       ant.x = pop.x;
       ant.y = pop.y;
@@ -293,13 +292,11 @@ var AI = {
   },
 
   /**
-   * 找到合适的路径去食物地点
-   * @param ant
+   * 沿食物信息素路径移动
    */
   get_right_food_road: function (ant) {
     if (ant.stack_path.length == 0) {
       ant.type = 0;
-      //此处在返回规则中设置信息素
       return AI.get_search_food(ant);
     } else {
       ant.type = 6;
@@ -311,21 +308,17 @@ var AI = {
   },
 
   /**
-   * 从环境中获取返回路径
-   * @param ant
-   * @returns {*}
+   * 回巢（概率化信息素选择）
    */
   get_back_rule: function (ant) {
     ant = AI.save_home_info(ant);
     var nx = 0,
       ny = 0,
-      mx = 0,
       i,
       j,
       x2,
-      flag = false,
-      jx,
-      jy;
+      flag = false;
+    var candidates = [];
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
@@ -339,49 +332,42 @@ var AI = {
           !AI.is_in_food(xob) &&
           !AI.is_in_water(xob)
         ) {
-          mx = -1;
           flag = true;
           break;
         }
-        if (AntFood.home_map.hasOwnProperty(x2)) {
+        if (AntFood.home_map.hasOwnProperty(x2) && AntFood.home_map[x2] > 0.1) {
           if (
-            AntFood.home_map[x2] > mx &&
-            !AI.in_queue(ant.queues, { x: nx, y: ny }) &&
             !AI.is_out_wall({ x: ant.x, y: ant.y }, xob) &&
             !AI.is_in_food(xob) &&
             !AI.is_in_water(xob)
           ) {
-            mx = AntFood.home_map[x2];
-            jy = j;
-            jx = i;
+            candidates.push({ x: i, y: j, w: AntFood.home_map[x2] });
           }
         }
       }
       if (flag) {
-        //找到巢穴
         break;
       }
     }
-    if (mx < 0.001 && mx >= 0) {
-      //搜索巢穴失败，规则运动
-      return AI.get_ant_search_rul(ant);
-    } else if (mx == -1) {
-      //找到巢穴
+    if (flag) {
       return AI.set_fixed_food_home(ant, { x: nx, y: ny });
-    } else {
-      //找到巢穴路径
+    }
+    if (candidates.length > 0) {
+      var target = AI.weighted_random(candidates);
       ant.type = 5;
-      ant.stack_path = AI.draw_line(ant.x + jx, ant.y + jy, ant.x, ant.y);
-      //不存在小于0的情形
+      ant.stack_path = AI.draw_line(
+        ant.x + target.x,
+        ant.y + target.y,
+        ant.x,
+        ant.y,
+      );
       return AI.find_food_back(ant);
     }
+    return AI.get_ant_search_rul(ant);
   },
 
   /**
    * 判断是否在队列之中
-   * @param {{x:number,y:number}[]} queue
-   * @param {{x:number,y:number}} obj
-   * @returns {boolean}
    */
   in_queue: function (queue, obj) {
     for (var i in queue) {
@@ -393,9 +379,7 @@ var AI = {
   },
 
   /**
-   * 简易搜索模式
-   * @param ant
-   * @returns {*}
+   * 随机搜索移动
    */
   get_ant_search_rul: function (ant) {
     var vector = ant.vector;
@@ -422,105 +406,69 @@ var AI = {
   },
 
   /**
-   * 随机调整关于蚂蚁的方向
-   * @param x
-   * @returns {*}
+   * 随机调整方向（5%概率）
    */
   random_search_rul: function (x) {
-    if (Math.random() < 0.01) {
+    if (Math.random() < 0.05) {
       return AI.get_new_vector(x);
     }
     return x;
   },
 
   /**
-   * 取蚂蚁的新的方向向量
+   * 取新的方向向量（排除当前和反方向）
    */
   get_new_vector: function (old) {
-    var rt = (Math.random() > 0.5 ? 1 : -1) * AI.rand(1, 8);
-    while (rt == old || rt + old == 0) {
-      rt = (Math.random() > 0.5 ? 1 : -1) * AI.rand(1, 8);
+    var rt = AI.rand(1, 8);
+    var opp = AI.opposite_dir(old);
+    var attempts = 0;
+    while ((rt == old || rt == opp) && attempts < 20) {
+      rt = AI.rand(1, 8);
+      attempts++;
     }
     return rt;
   },
 
   /**
-   * 选择一个方向
-   * @param ant
-   * @returns {*}
+   * 标准8方向移动（每方向精确1像素）
    */
   vector_set: function (ant) {
     switch (ant.vector) {
       case 1:
-        --ant.y;
-        break;
+        ant.y--;
+        break; // N
       case 2:
-        ++ant.x;
-        ant.y -= 2;
-        break;
+        ant.x++;
+        ant.y--;
+        break; // NE
       case 3:
-        ++ant.x;
-        --ant.y;
-        break;
+        ant.x++;
+        break; // E
       case 4:
-        ++ant.x;
-        break;
+        ant.x++;
+        ant.y++;
+        break; // SE
       case 5:
-        --ant.y;
-        ant.x += 2;
-        break;
+        ant.y++;
+        break; // S
       case 6:
-        ++ant.y;
-        ant.x += 2;
-        break;
+        ant.x--;
+        ant.y++;
+        break; // SW
       case 7:
-        ++ant.x;
-        ++ant.y;
-        break;
+        ant.x--;
+        break; // W
       case 8:
-        ant.y += 2;
-        ++ant.x;
-        break;
-      case -1:
-        ++ant.y;
-        break;
-      case -2:
-        --ant.x;
-        ant.y += 2;
-        break;
-      case -3:
-        --ant.x;
-        ++ant.y;
-        break;
-      case -4:
-        --ant.x;
-        break;
-      case -5:
-        ++ant.y;
-        ant.x -= 2;
-        break;
-      case -6:
-        --ant.y;
-        ant.x -= 2;
-        break;
-      case -7:
-        --ant.x;
-        --ant.y;
-        break;
-      case -8:
-        ant.y -= 2;
-        --ant.x;
-        break;
+        ant.x--;
+        ant.y--;
+        break; // NW
       default:
     }
     return ant;
   },
 
   /**
-   * 检测是否为不可到的点
-   * @param p1 当前点
-   * @param p2 目标点
-   * @returns {boolean} 有交点返回True
+   * 检测是否碰到墙
    */
   is_out_wall: function (p1, p2) {
     for (var i in AntFood.wall) {
@@ -543,8 +491,6 @@ var AI = {
 
   /**
    * 判断是否在食物中间
-   * @param {{x: number, y: number}} p
-   * @returns {boolean}
    */
   is_in_food: function (p) {
     for (var i in AntFood.food) {
@@ -558,8 +504,6 @@ var AI = {
 
   /**
    * 判断是否在巢穴
-   * @param {{x: number, y: number}} p
-   * @returns {boolean}
    */
   is_in_home: function (p) {
     return AI.in_circle(AntFood.home, p);
@@ -567,8 +511,6 @@ var AI = {
 
   /**
    * 判断是否在水中
-   * @param {{x: number, y: number}} p
-   * @returns {boolean}
    */
   is_in_water: function (p) {
     for (var i in AntFood.water) {
@@ -582,9 +524,6 @@ var AI = {
 
   /**
    * 判断点是否在圆内
-   * @param {{x: number, y: number, r:number}} circle
-   * @param {{x: number, y: number}} p
-   * @returns {boolean}
    */
   in_circle: function (circle, p) {
     return (
@@ -596,10 +535,6 @@ var AI = {
 
   /**
    * 判断点P是否在直线p1-p2上
-   * @param {{x: number, y: number}} p1
-   * @param {{x: number, y: number}} p2
-   * @param {{x: number, y: number}} p
-   * @returns {boolean}
    */
   in_line: function (p1, p2, p) {
     if ((p.x > p1.x && p.x > p2.x) || (p.x < p1.x && p.x < p2.x)) {
@@ -609,8 +544,7 @@ var AI = {
   },
 
   /**
-   * 求交点
-   * @returns {boolean} 有交点返回True
+   * 求线段交点
    */
   line_x_node: function (p1, p2, q1, q2) {
     var d1 =
@@ -623,30 +557,23 @@ var AI = {
   },
 
   /**
-   * 取一个随机数
-   * @param min
-   * @param max
+   * 取一个随机整数
    */
   rand: function (min, max) {
     return parseInt(min + Math.random() * (max - min + 1));
   },
 
   /**
-   * 求两点间所有点
-   * @param x1 目的X
-   * @param y1 目的Y
-   * @param x2 源X,不包含
-   * @param y2 源Y,不包含
-   * @returns {Array}
+   * Bresenham画线求两点间所有点
    */
   draw_line: function (x1, y1, x2, y2) {
     var dx = x2 - x1;
     var dy = y2 - y1;
-    var ux = ((dx > 0) << 1) - 1; //x的增量方向，取或-1
-    var uy = ((dy > 0) << 1) - 1; //y的增量方向，取或-1
+    var ux = ((dx > 0) << 1) - 1;
+    var uy = ((dy > 0) << 1) - 1;
     var x = x1,
       y = y1,
-      eps; //eps为累加误差
+      eps;
     var rt = [];
     eps = 0;
     dx = Math.abs(dx);
@@ -674,7 +601,7 @@ var AI = {
   },
 
   /**
-   * 减少信息素
+   * 信息素蒸发
    */
   sub_info: function () {
     for (var i in AntFood.home_map) {
@@ -695,35 +622,40 @@ var AI = {
   },
 
   /**
-   * 开始留下巢穴的信息素
-   * @param ant
+   * 信息素沉积（按蚂蚁状态分类）
+   * 外出状态(0,4,6,1)：只沉积home信息素，形成巢穴→外梯度
+   * 回程状态(5,2,7)：只沉积food信息素，形成食物→外梯度
    */
   save_home_info: function (ant) {
     var x = ant.y * AntFood.width + ant.x;
-    var now = 0;
+    var now;
 
-    //找食物，回巢信息
-    if (AntFood.home_map.hasOwnProperty(x)) {
-      now = AntFood.home_map[x];
-    }
-    if (now < AntFood.c_home) AntFood.home_map[x] = now + ant.c_home * 0.001;
-    ant.c_home *= 0.999;
-
-    now = 0;
-    //回巢，食物信息
-    if (AntFood.food_map.hasOwnProperty(x)) {
-      now = AntFood.food_map[x];
-    }
-    if (now < AntFood.c_food) AntFood.food_map[x] = now + ant.c_food * 0.01;
-    ant.c_food *= 0.99;
-
-    if (ant.water_save) {
-      now = 0;
-      if (AntFood.water_map.hasOwnProperty(x)) {
-        now = AntFood.water_map[x];
+    // home信息素：仅外出时沉积
+    if (ant.c_home > 1) {
+      if (ant.type == 0 || ant.type == 4 || ant.type == 6 || ant.type == 1) {
+        now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
+        if (now < ant.c_home) {
+          AntFood.home_map[x] = now + ant.c_home * 0.005;
+        }
       }
-      if (now < AntFood.water_max)
+      ant.c_home *= 0.999;
+    }
+
+    // food信息素：仅回程时沉积
+    if (ant.c_food > 1) {
+      if (ant.type == 5 || ant.type == 2 || ant.type == 7) {
+        now = AntFood.food_map.hasOwnProperty(x) ? AntFood.food_map[x] : 0;
+        AntFood.food_map[x] = now + ant.c_food * 0.05;
+      }
+      ant.c_food *= 0.995;
+    }
+
+    // 水信息素
+    if (ant.water_save) {
+      now = AntFood.water_map.hasOwnProperty(x) ? AntFood.water_map[x] : 0;
+      if (now < AntFood.water_max) {
         AntFood.water_map[x] = now + ant.water * 0.01;
+      }
     }
     return ant;
   },
