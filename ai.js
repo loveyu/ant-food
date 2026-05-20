@@ -622,21 +622,19 @@ var AI = {
   },
 
   /**
-   * 信息素沉积（按蚂蚁状态分类）
-   * 外出状态(0,4,6,1)：只沉积home信息素，形成巢穴→外梯度
-   * 回程状态(5,2,7)：只沉积food信息素，形成食物→外梯度
+   * 信息素沉积
+   * home信息素：所有状态都沉积（回巢蚂蚁需要它导航）
+   * food信���素：仅回程状态(5,2,7)沉积（只有找到食物的蚂蚁才携带食物信息素）
    */
   save_home_info: function (ant) {
     var x = ant.y * AntFood.width + ant.x;
     var now;
 
-    // home信息素：仅外出时沉积
+    // home信息素：所有状态沉积
     if (ant.c_home > 1) {
-      if (ant.type == 0 || ant.type == 4 || ant.type == 6 || ant.type == 1) {
-        now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
-        if (now < ant.c_home) {
-          AntFood.home_map[x] = now + ant.c_home * 0.005;
-        }
+      now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
+      if (now < ant.c_home) {
+        AntFood.home_map[x] = now + ant.c_home * 0.005;
       }
       ant.c_home *= 0.999;
     }
