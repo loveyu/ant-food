@@ -137,19 +137,21 @@ var AI = {
     ant = AI.save_home_info(ant);
     var x, y, x2, nx, ny, i, j;
 
-    // 第一优先：检查视野范围内是否直接看到食物
-    for (i = 0 - ant.eye; i <= ant.eye; i++) {
-      for (j = 0 - ant.eye; j <= ant.eye; j++) {
-        if (i == 0 && j == 0) continue;
-        nx = ant.x + i;
-        ny = ant.y + j;
-        var xob = { x: nx, y: ny };
-        if (
-          AI.is_in_food(xob) &&
-          !AI.is_out_wall(ant, xob) &&
-          !AI.is_in_water(xob)
-        ) {
-          return AI.set_fixed_food_path(ant, xob);
+    // 第一优先：检查视野范围内是否直接看到食物（自身不在食物内才检测，避免循环陷入）
+    if (!AI.is_in_food(ant)) {
+      for (i = 0 - ant.eye; i <= ant.eye; i++) {
+        for (j = 0 - ant.eye; j <= ant.eye; j++) {
+          if (i == 0 && j == 0) continue;
+          nx = ant.x + i;
+          ny = ant.y + j;
+          var xob = { x: nx, y: ny };
+          if (
+            AI.is_in_food(xob) &&
+            !AI.is_out_wall(ant, xob) &&
+            !AI.is_in_water(xob)
+          ) {
+            return AI.set_fixed_food_path(ant, xob);
+          }
         }
       }
     }
@@ -338,8 +340,31 @@ var AI = {
       ant.y = pop.y;
       return AI.save_home_info(ant);
     }
-    // stack_path 走完后，切换到 home 信息素导航（type 2）
-    // get_back_rule 同样会在 save_home_info 中沉积食物信息素
+    // stack_path 已走完。若蚂蚁仍在食物内（食物半径较大时整段路径均在食物里），
+    // 直接朝巢穴方向逃出，不检查食物障碍（蚂蚁携带食物，可以穿越食物区）。
+    if (AI.is_in_food(ant)) {
+      var dx = AntFood.home.x - ant.x;
+      var dy = AntFood.home.y - ant.y;
+      ant.vector = AI.dir_to_offset(dx, dy);
+      var next = AI.vector_set({ vector: ant.vector, x: ant.x, y: ant.y });
+      if (!AI.is_out_wall({ x: ant.x, y: ant.y }, next) && !AI.is_in_water(next)) {
+        ant.x = next.x;
+        ant.y = next.y;
+      } else {
+        // 墙/水阻挡，尝试其他方向（仍允许穿越食物）
+        for (var d = 1; d <= 8; d++) {
+          var tn = AI.vector_set({ vector: d, x: ant.x, y: ant.y });
+          if (!AI.is_out_wall({ x: ant.x, y: ant.y }, tn) && !AI.is_in_water(tn)) {
+            ant.x = tn.x;
+            ant.y = tn.y;
+            ant.vector = d;
+            break;
+          }
+        }
+      }
+      return AI.save_home_info(ant);
+    }
+    // 已在食物外，切换到 home 信息素导航（type 2）
     ant.type = 2;
     return AI.get_back_rule(ant);
   },
