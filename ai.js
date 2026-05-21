@@ -313,6 +313,7 @@ var AI = {
       ant.y = pop.y;
       ant.stack_path.push(pop);
     } else {
+      ant.type = 0;
       ant.queues = [];
       ant.queues_set = {};
       ant.c_home = AntFood.c_home;
@@ -325,48 +326,22 @@ var AI = {
   },
 
   /**
-   * 找到食物后返回：先沿stack_path走出食物区域，再直线朝巢穴前进
-   * 沿途沉积食物信息素，形成直接的收敛路径
+   * 找到食物后返回：先沿stack_path原路退回，再交给home信息素导航回巢
+   * 沿途沉积食物信息素，形成收敛路径
    */
   find_food_back: function (ant) {
     ant.type = 5;
-    // 先沿固定路径走出食物区域
+    // 沿固定路径走出食物区域（原路返回）
     if (ant.stack_path.length > 0) {
       var pop = ant.stack_path.pop();
       ant.x = pop.x;
       ant.y = pop.y;
       return AI.save_home_info(ant);
     }
-    // 已到达巢穴 - 移至中心沉积食物信息素再重置
-    if (AI.is_in_home(ant)) {
-      ant.x = AntFood.home.x;
-      ant.y = AntFood.home.y;
-      AI.save_home_info(ant);
-      ant.queues = [];
-      ant.queues_set = {};
-      ant.c_home = AntFood.c_home;
-      ant.c_food = 0;
-      ant.c_water = 0;
-      ant.water_save = false;
-      ant.type = 0;
-      return AI.get_search_food(ant);
-    }
-    // 直线朝巢穴方向移动，每帧1步
-    var dx = AntFood.home.x - ant.x;
-    var dy = AntFood.home.y - ant.y;
-    ant.vector = AI.dir_to_offset(dx, dy);
-    var next = AI.vector_set({ vector: ant.vector, x: ant.x, y: ant.y });
-    if (
-      !AI.is_out_wall({ x: ant.x, y: ant.y }, next) &&
-      !AI.is_in_water(next)
-    ) {
-      ant.x = next.x;
-      ant.y = next.y;
-    } else {
-      // 障碍阻挡，随机搜索绕行一帧
-      return AI.get_ant_search_rul(ant);
-    }
-    return AI.save_home_info(ant);
+    // stack_path 走完后，切换到 home 信息素导航（type 2）
+    // get_back_rule 同样会在 save_home_info 中沉积食物信息素
+    ant.type = 2;
+    return AI.get_back_rule(ant);
   },
 
   /**
