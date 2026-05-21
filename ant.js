@@ -261,10 +261,11 @@ var Ant = {
         eye: AI.rand(4, 8), //视距
         c_home: AntFood.c_home, //巢穴信息素
         c_food: 0, //食物信息素
+        c_water: 0, //水信息素
         fixed_path: [], //固定路径
         stack_path: [], //堆栈路径
         queues: [], //历史队列
-        water: AI.rand(AntFood.water_max * 3, AntFood.water_max * 5), //多少次后改为找水
+        water: AI.rand(AntFood.water_max * 15, AntFood.water_max * 30), //多少次后改为找水
         water_after: undefined, //找到水之后的状态
         water_save: false, //散布水信息素
         vector: AI.rand(1, 8), //方向

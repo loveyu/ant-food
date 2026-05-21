@@ -28,15 +28,37 @@ var AI = {
   },
 
   /**
+   * 根据偏移量计算最近的8方向向量
+   */
+  dir_to_offset: function (dx, dy) {
+    if (dx == 0 && dy == 0) return 1;
+    if (Math.abs(dx) > Math.abs(dy) * 2) {
+      return dx > 0 ? 3 : 7;
+    } else if (Math.abs(dy) > Math.abs(dx) * 2) {
+      return dy > 0 ? 5 : 1;
+    } else if (dx > 0 && dy > 0) {
+      return 4;
+    } else if (dx > 0 && dy < 0) {
+      return 2;
+    } else if (dx < 0 && dy > 0) {
+      return 6;
+    } else {
+      return 8;
+    }
+  },
+
+  /**
    * 计算蚂蚁的下一个点
    */
   get_next: function (ant) {
     var bk = { x: ant.x, y: ant.y };
-    // 水计数器到期且无进行中的路径时，必定找水
+    // 水计数器到期且无进行中的路径时，仅外出状态触发找水
     if (
       ant.water == 0 &&
       ant.stack_path.length == 0 &&
-      ant.fixed_path.length == 0
+      ant.fixed_path.length == 0 &&
+      ant.type == 0 &&
+      Math.random() < 0.1
     ) {
       if (AntFood.water.length > 0) {
         ant.water_after = ant.type;
@@ -49,6 +71,7 @@ var AI = {
     if (ant.water > 0) {
       --ant.water;
     }
+    var orig_type = ant.type;
     switch (ant.type) {
       case 0:
         ant = AI.get_search_food(ant);
@@ -77,138 +100,167 @@ var AI = {
       default:
         console.log("AI get_next error!");
     }
-    if (ant.queues.length == AntFood.max_queue) {
-      ant.queues.shift();
+    // 外出状态记录路径用于防重复访问
+    if (orig_type != 5 && orig_type != 2 && orig_type != 7) {
+      if (ant.queues.length == AntFood.max_queue) {
+        ant.queues.shift();
+      }
+      ant.queues.push({ x: bk.x, y: bk.y });
     }
-    ant.queues.push({ x: bk.x, y: bk.y });
     return ant;
   },
 
   /**
-   * 开始觅食操作（概率化信息素选择）
+   * 8方向偏移表
+   */
+  DIR_OFFSETS: [
+    null,
+    [0, -1], // 1: N
+    [1, -1], // 2: NE
+    [1, 0], // 3: E
+    [1, 1], // 4: SE
+    [0, 1], // 5: S
+    [-1, 1], // 6: SW
+    [-1, 0], // 7: W
+    [-1, -1], // 8: NW
+  ],
+
+  /**
+   * 开始觅食操作（局部梯度上升跟随食物信息素）
+   * 先检查8个相邻像素的food信息素（局部梯度上升），
+   * 若无相邻信息素，再扩大到视野范围扫描。
    */
   get_search_food: function (ant) {
     ant = AI.save_home_info(ant);
-    var nx = 0,
-      ny = 0,
-      i,
-      j,
-      x2,
-      flag = false;
-    var candidates = [];
+    var x, y, x2, nx, ny, i, j;
+
+    // 第一优先：检查视野范围内是否直接看到食物
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
         nx = ant.x + i;
         ny = ant.y + j;
-        x2 = ny * AntFood.width + nx;
         var xob = { x: nx, y: ny };
         if (
           AI.is_in_food(xob) &&
           !AI.is_out_wall(ant, xob) &&
           !AI.is_in_water(xob)
         ) {
-          flag = true;
-          break;
-        }
-        if (AntFood.food_map.hasOwnProperty(x2) && AntFood.food_map[x2] > 0.1) {
-          if (!AI.is_out_wall(ant, xob) && !AI.is_in_water(xob)) {
-            candidates.push({
-              x: i,
-              y: j,
-              w: AntFood.food_map[x2] * AntFood.food_map[x2],
-            });
-          }
+          return AI.set_fixed_food_path(ant, xob);
         }
       }
-      if (flag) {
-        break;
-      }
     }
-    if (flag) {
-      return AI.set_fixed_food_path(ant, { x: nx, y: ny });
-    }
-    if (candidates.length > 0) {
-      var target = AI.weighted_random(candidates);
-      ant.type = 6;
-      ant.stack_path = AI.draw_line(
-        ant.x + target.x,
-        ant.y + target.y,
-        ant.x,
-        ant.y,
-      );
-      return AI.get_right_food_road(ant);
-    }
-    return AI.get_ant_search_rul(ant);
-  },
 
-  /**
-   * 开始找水（概率化信息素选择）
-   */
-  search_water: function (ant) {
-    ant = AI.save_home_info(ant);
-    var nx = 0,
-      ny = 0,
-      i,
-      j,
-      x2,
-      flag = false,
-      xob;
-    var candidates = [];
+    // 第二优先：8邻居局部梯度上升（精确跟随信息素轨迹）
+    var bestDir = 0;
+    var bestW = 0;
+    for (var d = 1; d <= 8; d++) {
+      nx = ant.x + AI.DIR_OFFSETS[d][0];
+      ny = ant.y + AI.DIR_OFFSETS[d][1];
+      x2 = ny * AntFood.width + nx;
+      if (AntFood.food_map.hasOwnProperty(x2) && AntFood.food_map[x2] > bestW) {
+        var xob2 = { x: nx, y: ny };
+        if (!AI.is_out_wall(ant, xob2) && !AI.is_in_water(xob2)) {
+          bestW = AntFood.food_map[x2];
+          bestDir = d;
+        }
+      }
+    }
+
+    if (bestDir > 0) {
+      ant.vector = bestDir;
+      return AI.get_ant_search_rul(ant);
+    }
+
+    // 第三优先：扩大视野范围寻找信息素
+    var farBest = null;
+    var farBestW = 0;
     for (i = 0 - ant.eye; i <= ant.eye; i++) {
       for (j = 0 - ant.eye; j <= ant.eye; j++) {
         if (i == 0 && j == 0) continue;
         nx = ant.x + i;
         ny = ant.y + j;
-        xob = { x: nx, y: ny };
         x2 = ny * AntFood.width + nx;
+        if (
+          AntFood.food_map.hasOwnProperty(x2) &&
+          AntFood.food_map[x2] > farBestW
+        ) {
+          var xob3 = { x: nx, y: ny };
+          if (!AI.is_out_wall(ant, xob3) && !AI.is_in_water(xob3)) {
+            farBestW = AntFood.food_map[x2];
+            farBest = { x: i, y: j };
+          }
+        }
+      }
+    }
+
+    if (farBest) {
+      ant.vector = AI.dir_to_offset(farBest.x, farBest.y);
+      return AI.get_ant_search_rul(ant);
+    }
+
+    return AI.get_ant_search_rul(ant);
+  },
+
+  /**
+   * 开始找水（局部梯度上升跟随水信息素）
+   */
+  search_water: function (ant) {
+    ant = AI.save_home_info(ant);
+    var nx, ny, x2, xob;
+
+    // 直接检测水源
+    for (var i = 0 - ant.eye; i <= ant.eye; i++) {
+      for (var j = 0 - ant.eye; j <= ant.eye; j++) {
+        if (i == 0 && j == 0) continue;
+        nx = ant.x + i;
+        ny = ant.y + j;
+        xob = { x: nx, y: ny };
         if (
           AI.is_in_water(xob) &&
           !AI.is_out_wall(ant, xob) &&
           !AI.is_in_food(xob)
         ) {
-          flag = true;
-          break;
-        }
-        if (
-          AntFood.water_map.hasOwnProperty(x2) &&
-          AntFood.water_map[x2] > 0.1
-        ) {
-          if (
-            !AI.is_out_wall(ant, xob) &&
-            !AI.is_in_food(xob) &&
-            !AI.is_in_home(xob)
-          ) {
-            candidates.push({
-              x: i,
-              y: j,
-              w: AntFood.water_map[x2] * AntFood.water_map[x2],
-            });
+          if (ant.water == -1) {
+            ant.type = ant.water_after;
+            ant.water = AntFood.water_max * 5;
+            ant.c_water = AntFood.c_water_max;
+            ant.water_save = true;
+            return AI.get_next(ant);
           }
         }
       }
-      if (flag) {
-        break;
+    }
+
+    // 8邻居局部梯度上升
+    var bestDir = 0;
+    var bestW = 0;
+    for (var d = 1; d <= 8; d++) {
+      nx = ant.x + AI.DIR_OFFSETS[d][0];
+      ny = ant.y + AI.DIR_OFFSETS[d][1];
+      x2 = ny * AntFood.width + nx;
+      if (
+        AntFood.water_map.hasOwnProperty(x2) &&
+        AntFood.water_map[x2] > bestW
+      ) {
+        xob = { x: nx, y: ny };
+        if (
+          !AI.is_out_wall(ant, xob) &&
+          !AI.is_in_food(xob) &&
+          !AI.is_in_home(xob)
+        ) {
+          bestW = AntFood.water_map[x2];
+          bestDir = d;
+        }
       }
     }
-    if (flag && ant.water == -1) {
-      ant.type = ant.water_after;
-      ant.water = AntFood.water_max * 5;
-      ant.water_save = true;
-      return AI.get_next(ant);
+
+    if (bestDir > 0) {
+      ant.vector = bestDir;
+      return AI.get_ant_search_rul(ant);
     }
-    if (candidates.length > 0) {
-      var target = AI.weighted_random(candidates);
-      ant.type = 8;
-      ant.stack_path = AI.draw_line(
-        ant.x + target.x,
-        ant.y + target.y,
-        ant.x,
-        ant.y,
-      );
-      return AI.find_water_next(ant);
-    }
-    return (ant = AI.get_ant_search_rul(ant));
+
+    return AI.get_ant_search_rul(ant);
   },
 
   /**
@@ -231,7 +283,6 @@ var AI = {
       ant.y = pop.y;
       ant.stack_path.push(pop);
     } else {
-      ant.queues = [];
       ant.c_food = AntFood.c_food;
       ant.water_save = false;
       return AI.find_food_back(ant);
@@ -262,6 +313,7 @@ var AI = {
       ant.queues = [];
       ant.c_home = AntFood.c_home;
       ant.c_food = 0;
+      ant.c_water = 0;
       ant.water_save = false;
       return AI.get_search_food(ant);
     }
@@ -269,17 +321,45 @@ var AI = {
   },
 
   /**
-   * 找到食物后沿栈返回
+   * 找到食物后返回：先沿stack_path走出食物区域，再直线朝巢穴前进
+   * 沿途沉积食物信息素，形成直接的收敛路径
    */
   find_food_back: function (ant) {
-    if (ant.stack_path.length == 0) {
-      ant.type = 2;
-      return AI.get_back_rule(ant);
-    } else {
-      ant.type = 5;
+    ant.type = 5;
+    // 先沿固定路径走出食物区域
+    if (ant.stack_path.length > 0) {
       var pop = ant.stack_path.pop();
       ant.x = pop.x;
       ant.y = pop.y;
+      return AI.save_home_info(ant);
+    }
+    // 已到达巢穴 - 移至中心沉积食物信息素再重置
+    if (AI.is_in_home(ant)) {
+      ant.x = AntFood.home.x;
+      ant.y = AntFood.home.y;
+      AI.save_home_info(ant);
+      ant.queues = [];
+      ant.c_home = AntFood.c_home;
+      ant.c_food = 0;
+      ant.c_water = 0;
+      ant.water_save = false;
+      ant.type = 0;
+      return AI.get_search_food(ant);
+    }
+    // 直线朝巢穴方向移动，每帧1步
+    var dx = AntFood.home.x - ant.x;
+    var dy = AntFood.home.y - ant.y;
+    ant.vector = AI.dir_to_offset(dx, dy);
+    var next = AI.vector_set({ vector: ant.vector, x: ant.x, y: ant.y });
+    if (
+      !AI.is_out_wall({ x: ant.x, y: ant.y }, next) &&
+      !AI.is_in_water(next)
+    ) {
+      ant.x = next.x;
+      ant.y = next.y;
+    } else {
+      // 障碍阻挡，随机搜索绕行一帧
+      return AI.get_ant_search_rul(ant);
     }
     return AI.save_home_info(ant);
   },
@@ -317,7 +397,7 @@ var AI = {
   },
 
   /**
-   * 回巢（贪心选择 + 排除已走路径，确保可靠导航）
+   * 回巢（贪心选择home信息素，确保可靠导航）
    */
   get_back_rule: function (ant) {
     ant = AI.save_home_info(ant);
@@ -350,7 +430,6 @@ var AI = {
         if (AntFood.home_map.hasOwnProperty(x2)) {
           if (
             AntFood.home_map[x2] > mx &&
-            !AI.in_queue(ant.queues, xob) &&
             !AI.is_out_wall({ x: ant.x, y: ant.y }, xob) &&
             !AI.is_in_food(xob) &&
             !AI.is_in_water(xob)
@@ -372,6 +451,10 @@ var AI = {
       ant.stack_path = AI.draw_line(ant.x + jx, ant.y + jy, ant.x, ant.y);
       return AI.find_food_back(ant);
     }
+    // 无信息素时将方向指向巢穴，再随机搜索
+    var dx = AntFood.home.x - ant.x;
+    var dy = AntFood.home.y - ant.y;
+    ant.vector = AI.dir_to_offset(dx, dy);
     return AI.get_ant_search_rul(ant);
   },
 
@@ -379,10 +462,8 @@ var AI = {
    * 判断是否在队列之中
    */
   in_queue: function (queue, obj) {
-    for (var i in queue) {
-      if (queue.hasOwnProperty(i)) {
-        if (queue[i].x == obj.x && queue[i].y == obj.y) return true;
-      }
+    for (var i = 0, len = queue.length; i < len; i++) {
+      if (queue[i].x == obj.x && queue[i].y == obj.y) return true;
     }
     return false;
   },
@@ -418,7 +499,7 @@ var AI = {
    * 随机调整方向（5%概率）
    */
   random_search_rul: function (x) {
-    if (Math.random() < 0.05) {
+    if (Math.random() < 0.03) {
       return AI.get_new_vector(x);
     }
     return x;
@@ -639,30 +720,34 @@ var AI = {
     var x = ant.y * AntFood.width + ant.x;
     var now;
 
-    // home信息素：所有状态沉积
+    // home信息素：仅外出状态沉积（回程不沉积，防止自追踪导致振荡）
     if (ant.c_home > 1) {
-      now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
-      if (now < ant.c_home) {
-        AntFood.home_map[x] = now + ant.c_home * 0.002;
+      var is_returning = ant.type == 5 || ant.type == 2 || ant.type == 7;
+      if (!is_returning) {
+        now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
+        if (now < ant.c_home) {
+          AntFood.home_map[x] = now + ant.c_home * 0.004;
+        }
       }
       ant.c_home *= 0.999;
     }
 
-    // food信息素：仅回程时沉积
+    // food信息素：仅回程时沉积，c_food与c_home相同衰减率
     if (ant.c_food > 1) {
       if (ant.type == 5 || ant.type == 2 || ant.type == 7) {
         now = AntFood.food_map.hasOwnProperty(x) ? AntFood.food_map[x] : 0;
-        AntFood.food_map[x] = now + ant.c_food * 0.02;
+        AntFood.food_map[x] = now + ant.c_food * 0.008;
       }
-      ant.c_food *= 0.99;
+      ant.c_food *= 0.999;
     }
 
-    // 水信息素
-    if (ant.water_save) {
+    // 水信息素：用c_water浓度替代线性计数器，与home/food统一模型
+    if (ant.water_save && ant.c_water > 1) {
       now = AntFood.water_map.hasOwnProperty(x) ? AntFood.water_map[x] : 0;
-      if (now < AntFood.water_max) {
-        AntFood.water_map[x] = now + ant.water * 0.01;
+      if (now < AntFood.c_water_max) {
+        AntFood.water_map[x] = now + ant.c_water * 0.002;
       }
+      ant.c_water *= 0.999;
     }
     return ant;
   },

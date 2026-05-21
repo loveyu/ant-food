@@ -14,11 +14,12 @@ var AntFood = {
   counter: 0, //当前计数器
   counter_max: 100, //最大计数器,
   start: false, //是否启动
-  max_queue: 200, //最大记忆队列长度
+  max_queue: 300, //最大记忆队列长度
   home: { x: 1, y: 1, r: 2 }, //巢穴路径
   ant_number: 200, //蚂蚁初始数量
   c_home: 1000, //巢穴信息素
   c_food: 1000, //食物信息素
+  c_water_max: 1000, //水信息素最大浓度
   dark_mode: false, //暗色主题
 };
 
