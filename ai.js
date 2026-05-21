@@ -101,9 +101,14 @@ var AI = {
     // 外出状态记录路径用于防重复访问
     if (orig_type != 5 && orig_type != 2 && orig_type != 7) {
       if (ant.queues.length == AntFood.max_queue) {
-        ant.queues.shift();
+        var removed = ant.queues.shift();
+        var rkey = removed.x + "," + removed.y;
+        ant.queues_set[rkey]--;
+        if (ant.queues_set[rkey] <= 0) delete ant.queues_set[rkey];
       }
       ant.queues.push({ x: bk.x, y: bk.y });
+      ant.queues_set[bk.x + "," + bk.y] =
+        (ant.queues_set[bk.x + "," + bk.y] || 0) + 1;
     }
     return ant;
   },
@@ -309,6 +314,7 @@ var AI = {
       ant.stack_path.push(pop);
     } else {
       ant.queues = [];
+      ant.queues_set = {};
       ant.c_home = AntFood.c_home;
       ant.c_food = 0;
       ant.c_water = 0;
@@ -337,6 +343,7 @@ var AI = {
       ant.y = AntFood.home.y;
       AI.save_home_info(ant);
       ant.queues = [];
+      ant.queues_set = {};
       ant.c_home = AntFood.c_home;
       ant.c_food = 0;
       ant.c_water = 0;
@@ -457,36 +464,56 @@ var AI = {
   },
 
   /**
-   * 判断是否在队列之中
+   * 判断是否在队列之中（O(1) 哈希查找）
    */
-  in_queue: function (queue, obj) {
-    for (var i = 0, len = queue.length; i < len; i++) {
-      if (queue[i].x == obj.x && queue[i].y == obj.y) return true;
-    }
-    return false;
+  in_queue: function (ant, obj) {
+    return !!(ant.queues_set[obj.x + "," + obj.y]);
   },
 
   /**
    * 随机搜索移动
+   * 修复：随机尝试8次后，系统性枚举全部方向，彻底避免蚂蚁卡在墙边
    */
   get_ant_search_rul: function (ant) {
+    var pos = { x: ant.x, y: ant.y };
     var vector = ant.vector;
     var next = AI.vector_set({ vector: vector, x: ant.x, y: ant.y });
     var i = 0;
     while (
-      AI.is_out_wall({ x: ant.x, y: ant.y }, { x: next.x, y: next.y }) ||
-      AI.in_queue(ant.queues, next) ||
+      AI.is_out_wall(pos, next) ||
+      AI.in_queue(ant, next) ||
       AI.is_in_water(next) ||
       AI.is_in_food(next)
     ) {
-      if (++i > 100) {
+      if (++i > 8) {
+        // 随机尝试耗尽，清空队列后系统性枚举8个方向
         ant.queues = [];
-        return ant;
+        ant.queues_set = {};
+        var found = false;
+        for (var d = 1; d <= 8; d++) {
+          var tn = AI.vector_set({ vector: d, x: ant.x, y: ant.y });
+          if (
+            !AI.is_out_wall(pos, tn) &&
+            !AI.is_in_water(tn) &&
+            !AI.is_in_food(tn)
+          ) {
+            vector = d;
+            next = tn;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          // 四面全是墙，原地更新方向，下帧再试
+          ant.vector = AI.rand(1, 8);
+          return ant;
+        }
+        break;
       }
       vector = AI.get_new_vector(vector);
       next = AI.vector_set({ vector: vector, x: ant.x, y: ant.y });
     }
-    ant.save = { x: ant.x, y: ant.y };
+    ant.save = pos;
     ant.vector = AI.random_search_rul(vector);
     ant.x = next.x;
     ant.y = next.y;
@@ -559,18 +586,16 @@ var AI = {
    * 检测是否碰到墙
    */
   is_out_wall: function (p1, p2) {
-    for (var i in AntFood.wall) {
-      if (!AntFood.wall.hasOwnProperty(i)) {
-        continue;
-      }
+    for (var i = 0; i < AntFood.wall.length; i++) {
       var obj = AntFood.wall[i];
-      var status = AI.line_x_node(
-        p1,
-        p2,
-        { x: obj.x1, y: obj.y1 },
-        { x: obj.x2, y: obj.y2 },
-      );
-      if (status) {
+      if (
+        AI.line_x_node(
+          p1,
+          p2,
+          { x: obj.x1, y: obj.y1 },
+          { x: obj.x2, y: obj.y2 },
+        )
+      ) {
         return true;
       }
     }
@@ -581,11 +606,8 @@ var AI = {
    * 判断是否在食物中间
    */
   is_in_food: function (p) {
-    for (var i in AntFood.food) {
-      if (!AntFood.food.hasOwnProperty(i)) continue;
-      if (AI.in_circle(AntFood.food[i], p)) {
-        return true;
-      }
+    for (var i = 0; i < AntFood.food.length; i++) {
+      if (AI.in_circle(AntFood.food[i], p)) return true;
     }
     return false;
   },
@@ -601,11 +623,8 @@ var AI = {
    * 判断是否在水中
    */
   is_in_water: function (p) {
-    for (var i in AntFood.water) {
-      if (!AntFood.water.hasOwnProperty(i)) continue;
-      if (AI.in_circle(AntFood.water[i], p)) {
-        return true;
-      }
+    for (var i = 0; i < AntFood.water.length; i++) {
+      if (AI.in_circle(AntFood.water[i], p)) return true;
     }
     return false;
   },
