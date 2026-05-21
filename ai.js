@@ -52,24 +52,22 @@ var AI = {
    */
   get_next: function (ant) {
     var bk = { x: ant.x, y: ant.y };
-    // 水计数器到期且无进行中的路径时，仅外出状态触发找水
-    if (
-      ant.water == 0 &&
-      ant.stack_path.length == 0 &&
-      ant.fixed_path.length == 0 &&
-      ant.type == 0 &&
-      Math.random() < 0.1
-    ) {
-      if (AntFood.water.length > 0) {
+    // 仅当地图有水源时才处理找水逻辑
+    if (AntFood.water.length > 0) {
+      if (
+        ant.water == 0 &&
+        ant.stack_path.length == 0 &&
+        ant.fixed_path.length == 0 &&
+        ant.type == 0 &&
+        Math.random() < 0.1
+      ) {
         ant.water_after = ant.type;
         ant.type = 1;
         ant.water = -1;
-      } else {
-        ant.water = AntFood.water_max * 5;
       }
-    }
-    if (ant.water > 0) {
-      --ant.water;
+      if (ant.water > 0) {
+        --ant.water;
+      }
     }
     var orig_type = ant.type;
     switch (ant.type) {
@@ -485,7 +483,7 @@ var AI = {
         ant.queues = [];
         return ant;
       }
-      vector = AI.get_new_vector(ant.vector);
+      vector = AI.get_new_vector(vector);
       next = AI.vector_set({ vector: vector, x: ant.x, y: ant.y });
     }
     ant.save = { x: ant.x, y: ant.y };
@@ -691,23 +689,66 @@ var AI = {
   },
 
   /**
-   * 信息素蒸发
+   * 信息素蒸发（被墙阻断的不可达点加速蒸发）
    */
   sub_info: function () {
+    var hx = AntFood.home.x,
+      hy = AntFood.home.y;
+    var w = AntFood.width;
     for (var i in AntFood.home_map) {
       if (AntFood.home_map.hasOwnProperty(i)) {
-        AntFood.home_map[i] *= 0.999;
+        var px = i % w,
+          py = (i - px) / w;
+        AntFood.home_map[i] *= AI.is_out_wall(
+          { x: px, y: py },
+          { x: hx, y: hy },
+        )
+          ? 0.97
+          : 0.999;
       }
     }
     for (i in AntFood.food_map) {
       if (AntFood.food_map.hasOwnProperty(i)) {
-        AntFood.food_map[i] *= 0.999;
+        px = i % w;
+        py = (i - px) / w;
+        AntFood.food_map[i] *= AI.is_out_wall(
+          { x: px, y: py },
+          { x: hx, y: hy },
+        )
+          ? 0.97
+          : 0.999;
       }
     }
     for (i in AntFood.water_map) {
       if (AntFood.water_map.hasOwnProperty(i)) {
-        AntFood.water_map[i] *= 0.999;
+        px = i % w;
+        py = (i - px) / w;
+        AntFood.water_map[i] *= AI.is_out_wall(
+          { x: px, y: py },
+          { x: hx, y: hy },
+        )
+          ? 0.97
+          : 0.999;
       }
+    }
+  },
+
+  /**
+   * 在指定地图的位置及8邻居沉积信息素（不穿过墙）
+   */
+  deposit_pheromone: function (map, x, y, amount) {
+    var w = AntFood.width,
+      h = AntFood.height;
+    var key = y * w + x;
+    map[key] = (map[key] || 0) + amount;
+    var spread = amount * 0.2;
+    for (var d = 1; d <= 8; d++) {
+      var nx = x + AI.DIR_OFFSETS[d][0];
+      var ny = y + AI.DIR_OFFSETS[d][1];
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      if (AI.is_out_wall({ x: x, y: y }, { x: nx, y: ny })) continue;
+      var nk = ny * w + nx;
+      map[nk] = (map[nk] || 0) + spread;
     }
   },
 
@@ -717,35 +758,34 @@ var AI = {
    * food信���素：仅回程状态(5,2,7)沉积（只有找到食物的蚂蚁才携带食物信息素）
    */
   save_home_info: function (ant) {
-    var x = ant.y * AntFood.width + ant.x;
-    var now;
+    var ax = ant.x,
+      ay = ant.y;
 
     // home信息素：仅外出状态沉积（回程不沉积，防止自追踪导致振荡）
     if (ant.c_home > 1) {
       var is_returning = ant.type == 5 || ant.type == 2 || ant.type == 7;
       if (!is_returning) {
-        now = AntFood.home_map.hasOwnProperty(x) ? AntFood.home_map[x] : 0;
+        var now = AntFood.home_map[ay * AntFood.width + ax] || 0;
         if (now < ant.c_home) {
-          AntFood.home_map[x] = now + ant.c_home * 0.004;
+          AI.deposit_pheromone(AntFood.home_map, ax, ay, ant.c_home * 0.004);
         }
       }
       ant.c_home *= 0.999;
     }
 
-    // food信息素：仅回程时沉积，c_food与c_home相同衰减率
+    // food信息素：仅回程时沉积
     if (ant.c_food > 1) {
       if (ant.type == 5 || ant.type == 2 || ant.type == 7) {
-        now = AntFood.food_map.hasOwnProperty(x) ? AntFood.food_map[x] : 0;
-        AntFood.food_map[x] = now + ant.c_food * 0.008;
+        AI.deposit_pheromone(AntFood.food_map, ax, ay, ant.c_food * 0.008);
       }
       ant.c_food *= 0.999;
     }
 
-    // 水信息素：用c_water浓度替代线性计数器，与home/food统一模型
+    // 水信息素：用c_water浓度替代线性计数器
     if (ant.water_save && ant.c_water > 1) {
-      now = AntFood.water_map.hasOwnProperty(x) ? AntFood.water_map[x] : 0;
-      if (now < AntFood.c_water_max) {
-        AntFood.water_map[x] = now + ant.c_water * 0.002;
+      var wnow = AntFood.water_map[ay * AntFood.width + ax] || 0;
+      if (wnow < AntFood.c_water_max) {
+        AI.deposit_pheromone(AntFood.water_map, ax, ay, ant.c_water * 0.002);
       }
       ant.c_water *= 0.999;
     }
